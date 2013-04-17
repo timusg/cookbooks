@@ -1,6 +1,4 @@
 chef cookbooks
 ==============
 
-list
---------------
-- elasticsaerch as service in centos 
+- elasticsearch as a service in centos 
