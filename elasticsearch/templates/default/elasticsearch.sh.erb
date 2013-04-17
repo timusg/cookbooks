@@ -1,0 +1,175 @@
+#!/bin/sh
+#
+#  elastic search control script
+#
+# chkconfig: - 80 20
+# description: elastic search 
+# processname: elasticsearch
+# pidfile: /var/run/elasticsearch/elasticsearch.pid
+
+
+. /etc/init.d/functions
+
+ES_USER=elasticsearch
+STARTUP_WAIT=30
+SHUTDOWN_WAIT=30
+ES_CONSOLE_LOG=/var/log/elasticsearch/console.log
+
+# Set defaults.
+
+if [ -z "$ES_HOME" ]; then
+  ES_HOME=/opt/elasticsearch/elasticsearch
+fi
+export ES_HOME
+
+
+if [ -z "$JAVA_HOME" ]; then
+   JAVA_HOME=/opt/jdk7/
+fi
+export JAVA_HOME
+
+if [ -z "$ES_PIDFILE" ]; then
+  ES_PIDFILE=/var/run/elasticsearch/elasticsearch.pid
+fi
+export ES_PIDFILE
+
+if [ -z "$ES_CONSOLE_LOG" ]; then
+  ES_CONSOLE_LOG=/var/log/elasticsearch/console.log
+fi
+
+if [ -z "$STARTUP_WAIT" ]; then
+  STARTUP_WAIT=30
+fi
+
+if [ -z "$SHUTDOWN_WAIT" ]; then
+  SHUTDOWN_WAIT=30
+fi
+
+ES_SCRIPT=$ES_HOME/bin/elasticsearch
+
+prog='elasticsearch'
+
+CMD_PREFIX=''
+
+if [ ! -z "$ES_USER" ]; then
+  if [ -r /etc/rc.d/init.d/functions ]; then
+    CMD_PREFIX="daemon --user $ES_USER"
+  else
+    CMD_PREFIX="su - $ES_USER -c"
+  fi
+fi
+
+start() {
+
+  if [ -f $ES_CONSOLE_LOG ]; then
+        FILE_SUFFIX=`date +%d%m%y%H%M`
+        mv "$ES_CONSOLE_LOG" "$ES_CONSOLE_LOG"_"$FILE_SUFFIX"
+  fi
+
+  echo -n "Starting $prog: "
+  if [ -f $ES_PIDFILE ]; then
+    read ppid < $ES_PIDFILE
+    if [ `ps --pid $ppid 2> /dev/null | grep -c $ppid 2> /dev/null` -eq '1' ]; then
+      echo -n "$prog is already running"
+      failure
+      echo
+      return 1 
+    else
+      rm -f $ES_PIDFILE
+    fi
+  fi
+  mkdir -p $(dirname $ES_CONSOLE_LOG)
+  cat /dev/null > $ES_CONSOLE_LOG
+
+  mkdir -p $(dirname $ES_PIDFILE)
+  chown $ES_USER $(dirname $ES_PIDFILE) || true
+
+  if [ ! -z "$ES_USER" ]; then
+    if [ -r /etc/rc.d/init.d/functions ]; then
+      daemon --user $ES_USER $ES_SCRIPT -p $ES_PIDFILE  -f 2>&1 > $ES_CONSOLE_LOG &
+    else
+      su - $ES_USER -c "$ES_SCRIPT -p $ES_PIDFILE" 2>&1 > $ES_CONSOLE_LOG &
+    fi
+  fi
+
+  count=0
+  launched=false
+
+  until [ $count -gt $STARTUP_WAIT ]
+  do
+    grep 'initialized' $ES_CONSOLE_LOG > /dev/null 
+    if [ $? -eq 0 ] ; then
+      launched=true
+      break
+    fi 
+    sleep 1
+    let count=$count+1;
+  done
+  
+  success
+  echo
+  return 0
+}
+
+stop() {
+  echo -n $"Stopping $prog: "
+  count=0;
+
+  if [ -f $ES_PIDFILE ]; then
+    read kpid < $ES_PIDFILE
+    let kwait=$SHUTDOWN_WAIT
+
+    # Try issuing SIGTERM
+
+    echo $kpid
+    kill -15 $kpid
+    until [ `ps --pid $kpid 2> /dev/null | grep -c $kpid 2> /dev/null` -eq '0' ] || [ $count -gt $kwait ]
+    do
+      sleep 1
+      let count=$count+1;
+    done
+
+    if [ $count -gt $kwait ]; then
+      kill -9 $kpid
+    fi
+  fi
+  rm -f $ES_PIDFILE
+  success
+  echo
+}
+
+status() {
+  if [ -f $ES_PIDFILE ]; then
+    read ppid < $ES_PIDFILE
+    if [ `ps --pid $ppid 2> /dev/null | grep -c $ppid 2> /dev/null` -eq '1' ]; then
+      echo "$prog is running (pid $ppid)"
+      return 0
+    else
+      echo "$prog dead but pid file exists"
+      return 1
+    fi
+  fi
+  echo "$prog is not running"
+  return 3
+}
+
+case "$1" in
+  start)
+      start
+      ;;
+  stop)
+      stop
+      ;;
+  restart)
+      $0 stop
+      $0 start
+      ;;
+  status)
+      status
+      ;;
+  *)
+      ## If no parameters are given, print which are avaiable.
+      echo "Usage: $0 {start|stop|status|restart|reload}"
+      exit 1
+      ;;
+esac

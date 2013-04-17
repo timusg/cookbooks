@@ -1,0 +1,5 @@
+check process elasticsearch with pidfile "/var/run/elasticsearch/elasticsearch.pid"
+ stop program = "/etc/init.d/elasticsearch stop"
+ start program = "/etc/init.d/elasticsearch start"
+   if failed host <%=@node_ipaddress%> port 9200
+   then restart
